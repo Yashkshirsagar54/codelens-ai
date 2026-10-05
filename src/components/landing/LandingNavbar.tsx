@@ -92,8 +92,15 @@ export const LandingNavbar: React.FC = () => {
             <ThemeToggle />
 
             <Link
+              to="/admin"
+              className="px-3 py-2 text-xs font-bold text-slate-700 dark:text-white/80 hover:text-slate-900 dark:hover:text-white transition-colors min-h-[44px] flex items-center gap-1.5"
+            >
+              <span>Admin DB</span>
+            </Link>
+
+            <Link
               to="/login"
-              className="px-3.5 py-2.5 text-xs font-bold text-slate-700 dark:text-white/80 hover:text-slate-900 dark:hover:text-white transition-colors min-h-[44px] flex items-center"
+              className="px-3 py-2 text-xs font-bold text-slate-700 dark:text-white/80 hover:text-slate-900 dark:hover:text-white transition-colors min-h-[44px] flex items-center"
             >
               Sign In
             </Link>

@@ -153,36 +153,49 @@ export const sqliteService = {
   // --- USER OPERATIONS ---
   createUser(user: {
     id: string;
-    email?: string;
-    phone?: string;
-    fullName?: string;
-    avatarUrl?: string;
+    email?: string | null;
+    phone?: string | null;
+    fullName?: string | null;
+    avatarUrl?: string | null;
     role?: string;
-    passwordHash?: string;
+    passwordHash?: string | null;
+    isVerified?: boolean;
   }): UserRecord {
     const now = new Date().toISOString();
+
+    // Check if user already exists by ID or by email to avoid duplicate rows
+    let existing: any = this.getUserById(user.id);
+    if (!existing && user.email) {
+      existing = this.getUserByEmail(user.email);
+    }
+    const targetId = existing ? existing.id : user.id;
+
     const stmt = sqlite.prepare(`
-      INSERT INTO users (id, email, phone, full_name, avatar_url, role, password_hash, login_count, last_login_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      INSERT INTO users (id, email, phone, full_name, avatar_url, role, password_hash, is_verified, login_count, last_login_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
-        email = excluded.email,
+        email = COALESCE(excluded.email, users.email),
         phone = COALESCE(excluded.phone, users.phone),
         full_name = COALESCE(excluded.full_name, users.full_name),
+        avatar_url = COALESCE(excluded.avatar_url, users.avatar_url),
+        password_hash = COALESCE(excluded.password_hash, users.password_hash),
+        is_verified = CASE WHEN excluded.is_verified = 1 OR excluded.password_hash IS NOT NULL THEN 1 ELSE users.is_verified END,
         last_login_at = excluded.last_login_at
     `);
     stmt.run(
-      user.id,
-      user.email || null,
+      targetId,
+      user.email ? user.email.toLowerCase().trim() : null,
       user.phone || null,
       user.fullName || null,
       user.avatarUrl || null,
       user.role || 'developer',
       user.passwordHash || null,
+      user.isVerified ? 1 : (user.passwordHash ? 1 : 0),
       now,
       now
     );
 
-    return this.getUserById(user.id)!;
+    return this.getUserById(targetId)!;
   },
 
   getUserById(id: string): UserRecord | null {

@@ -38,14 +38,7 @@ export const App: React.FC = () => {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/admin"
-        element={
-          <ProtectedRoute requireAuth={true}>
-            <AdminPage />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/admin" element={<AdminPage />} />
 
       {/* Guest-Only Auth Routes */}
       <Route

@@ -74,13 +74,26 @@ export async function sendOtpSms(recipientPhone: string, otpCode: string): Promi
 
       const data = await response.json();
       if (response.ok && data?.return === true) {
-        console.log(`📱 [Fast2SMS] Real SMS dispatched to [${normalizedPhone}]`);
+        console.log(`📱 [Fast2SMS] Real SMS dispatched to [${normalizedPhone}]! Message:`, data.message || 'OTP Sent');
         return { success: true, simulated: false, provider: 'fast2sms' };
       } else {
-        console.warn('⚠️ Fast2SMS API response:', data);
+        const errorMsg = Array.isArray(data?.message) ? data.message.join(', ') : (data?.message || 'Fast2SMS dispatch rejected.');
+        console.warn('⚠️ Fast2SMS API response:', errorMsg);
+        return {
+          success: false,
+          simulated: false,
+          provider: 'fast2sms',
+          error: errorMsg,
+        };
       }
     } catch (f2sErr: any) {
       console.warn('⚠️ Fast2SMS delivery error:', f2sErr.message);
+      return {
+        success: false,
+        simulated: false,
+        provider: 'fast2sms',
+        error: `Fast2SMS network connection failed: ${f2sErr.message}`,
+      };
     }
   }
 

@@ -52,6 +52,11 @@ authRouter.post('/send-otp', async (req: Request, res: Response): Promise<void> 
       // Dispatch real-time SMS
       const smsRes = await sendOtpSms(cleanPhone, generatedOTP);
 
+      if (!smsRes.success && smsRes.error) {
+        res.status(400).json({ error: smsRes.error });
+        return;
+      }
+
       res.status(200).json({
         success: true,
         message: smsRes.simulated
@@ -136,6 +141,11 @@ authRouter.post('/resend-otp', async (req: Request, res: Response): Promise<void
     try {
       dbService.savePhoneOtp(otpId, cleanPhone, otpHash, expiresAtMs, 60);
       const smsRes = await sendOtpSms(cleanPhone, generatedOTP);
+
+      if (!smsRes.success && smsRes.error) {
+        res.status(400).json({ error: smsRes.error });
+        return;
+      }
 
       res.status(200).json({
         success: true,
@@ -418,13 +428,7 @@ authRouter.post('/register', async (req: Request, res: Response): Promise<void> 
     return;
   }
 
-  if (!phone || phone.trim().length < 8) {
-    res.status(400).json({ error: 'A valid mobile number is required.' });
-    return;
-  }
-
   const cleanEmail = email.toLowerCase().trim();
-  const cleanPhone = normalizePhoneNumber(phone);
 
   if (!/\S+@\S+\.\S+/.test(cleanEmail)) {
     res.status(400).json({ error: 'Please enter a valid email address.' });
@@ -436,71 +440,96 @@ authRouter.post('/register', async (req: Request, res: Response): Promise<void> 
     return;
   }
 
+  const cleanPhone = phone && phone.trim().length >= 8 ? normalizePhoneNumber(phone) : null;
+  const passHash = hashPassword(password);
+
   try {
     const existingByEmail = dbService.getUserByEmail(cleanEmail);
-    if (existingByEmail && existingByEmail.isVerified) {
-      res.status(400).json({ error: 'An account with this email already exists and is verified. Please log in.' });
-      return;
+
+    if (existingByEmail) {
+      // If user exists and password matches, log them in smoothly
+      if (existingByEmail.passwordHash && existingByEmail.passwordHash === passHash) {
+        dbService.updateUserLogin(existingByEmail.id);
+        const refreshedUser = dbService.getUserById(existingByEmail.id)!;
+        const token = createToken(refreshedUser.id);
+
+        dbService.recordAuthLog({
+          id: crypto.randomUUID(),
+          userId: refreshedUser.id,
+          authType: 'login',
+          ipAddress: (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress,
+          userAgent: req.headers['user-agent'],
+        });
+
+        res.status(200).json({
+          success: true,
+          message: 'Account already exists. Logged in successfully!',
+          user: {
+            id: refreshedUser.id,
+            email: refreshedUser.email || '',
+            phone: refreshedUser.phone || null,
+            fullName: refreshedUser.fullName || refreshedUser.email?.split('@')[0],
+            role: refreshedUser.role || 'developer',
+            isVerified: true,
+            loginCount: refreshedUser.loginCount,
+            lastLoginAt: refreshedUser.lastLoginAt,
+            createdAt: refreshedUser.createdAt,
+          },
+          token,
+        });
+        return;
+      } else if (existingByEmail.passwordHash && existingByEmail.isVerified) {
+        res.status(400).json({ error: 'An account with this email already exists. Please log in with your password.' });
+        return;
+      }
     }
 
-    const existingByPhone = dbService.getUserByPhone(cleanPhone);
-    if (existingByPhone && existingByPhone.isVerified && existingByPhone.id !== existingByEmail?.id) {
-      res.status(400).json({ error: 'An account with this mobile number already exists and is verified. Please log in.' });
-      return;
-    }
-
-    const passHash = hashPassword(password);
     const userId = existingByEmail ? existingByEmail.id : `usr_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
 
-    // Create or update user account (unverified)
-    dbService.createUser({
+    // Create and permanently save user account in DB
+    const user = dbService.createUser({
       id: userId,
       email: cleanEmail,
-      phone: cleanPhone,
+      phone: cleanPhone || (existingByEmail?.phone ?? null),
       fullName: fullName || cleanEmail.split('@')[0],
       passwordHash: passHash,
       role: 'developer',
+      isVerified: true,
     });
 
-    // Generate secure random 6-digit OTP
-    const generatedOTP = crypto.randomInt(100000, 1000000).toString();
-    const otpHash = hashOtp(generatedOTP);
-    const expiresAtMs = Date.now() + 5 * 60 * 1000;
-    const otpId = `otp_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-
-    dbService.savePhoneOtp(otpId, cleanPhone, otpHash, expiresAtMs, 60);
-
-    // Send real-time SMS
-    const smsRes = await sendOtpSms(cleanPhone, generatedOTP);
-
-    // Record auth log
+    // Record auth audit log for registration
     dbService.recordAuthLog({
       id: crypto.randomUUID(),
-      userId,
-      authType: 'register_pending_mobile_otp',
+      userId: user.id,
+      authType: 'register',
       ipAddress: (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
     });
 
-    console.log(`📱 Verification Mobile OTP dispatched to [${cleanPhone}] for pending account registration`);
+    const token = createToken(user.id);
 
-    res.status(200).json({
+    console.log(`✅ Real developer account registered and stored: [${user.email}] (User ID: ${user.id}, Phone: ${user.phone || 'none'})`);
+
+    res.status(201).json({
       success: true,
-      requiresVerification: true,
-      phone: cleanPhone,
-      email: cleanEmail,
-      message: smsRes.simulated
-        ? `Code dispatched to ${cleanPhone}.`
-        : `Verification code dispatched to ${cleanPhone}. Please enter the 6-digit code to activate your account.`,
-      expiresAt: expiresAtMs,
-      cooldownSeconds: 60,
-      simulated: smsRes.simulated,
-      devOtp: smsRes.devCode,
+      message: 'Account registered and activated successfully!',
+      user: {
+        id: user.id,
+        email: user.email,
+        phone: user.phone || null,
+        fullName: user.fullName,
+        role: user.role || 'developer',
+        isVerified: true,
+        loginCount: user.loginCount || 1,
+        lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt,
+      },
+      token,
     });
   } catch (error: any) {
     console.error('❌ Registration error:', error);
     Sentry.captureException(error);
-    res.status(500).json({ error: 'Failed to initiate account registration.' });
+    res.status(500).json({ error: 'Failed to complete registration.' });
   }
 });
 
@@ -523,23 +552,23 @@ authRouter.post('/login', async (req: Request, res: Response): Promise<void> => 
     let user = dbService.getUserByEmail(cleanEmail);
 
     if (!user) {
-      // Auto-register fresh account smoothly
-      const userId = `usr_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-      user = dbService.createUser({
-        id: userId,
-        email: cleanEmail,
-        fullName: cleanEmail.split('@')[0],
-        passwordHash: passHash,
-        role: 'developer',
-      });
-    } else if (user.passwordHash && user.passwordHash !== passHash) {
+      res.status(401).json({ error: 'No account found with this email. Please register first.' });
+      return;
+    }
+
+    if (user.passwordHash && user.passwordHash !== passHash) {
       res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
       return;
-    } else {
-      // Update login timestamp & counter
-      dbService.updateUserLogin(user.id);
-      user = dbService.getUserById(user.id)!;
     }
+
+    // If existing user didn't have password saved yet, set it now
+    if (!user.passwordHash) {
+      dbService.updateUserPassword(user.id, passHash);
+    }
+
+    // Update login timestamp & counter
+    dbService.updateUserLogin(user.id);
+    user = dbService.getUserById(user.id)!;
 
     // Record login activity log
     dbService.recordAuthLog({
@@ -559,10 +588,13 @@ authRouter.post('/login', async (req: Request, res: Response): Promise<void> => 
       user: {
         id: user.id,
         email: user.email || '',
+        phone: user.phone || null,
         fullName: user.fullName || (user.email ? user.email.split('@')[0] : 'Developer'),
         role: user.role || 'developer',
+        isVerified: true,
         loginCount: user.loginCount || 1,
         lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt,
       },
       token,
     });
