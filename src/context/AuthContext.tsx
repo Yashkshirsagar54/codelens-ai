@@ -51,6 +51,30 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const TOKEN_KEY = 'codelens_auth_token';
 const USER_KEY = 'codelens_user_data';
 
+/**
+ * Safely parses response from server, handling plain-text errors without crashing JSON parser.
+ */
+async function parseApiResponse(res: Response): Promise<{ data: any; error?: string }> {
+  try {
+    const text = await res.text();
+    if (!text || !text.trim()) {
+      return { data: {}, error: res.ok ? undefined : `Server error (${res.status})` };
+    }
+    try {
+      const data = JSON.parse(text);
+      return { data };
+    } catch {
+      // Body is not valid JSON (e.g., plain-text 500 error from platform)
+      const cleanMessage = text.length > 250
+        ? `Server error (${res.status}). Please verify deployment configuration.`
+        : text;
+      return { data: null, error: cleanMessage };
+    }
+  } catch (err: any) {
+    return { data: null, error: err.message || `Network error (${res.status})` };
+  }
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -81,9 +105,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ identifier: email, email, password }),
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        return { error: { message: data.error || 'Login failed.' } };
+      const { data, error: parseError } = await parseApiResponse(res);
+      if (!res.ok || parseError || data?.error) {
+        return { error: { message: data?.error || parseError || 'Login failed.' } };
       }
 
       const appUser: AppUser = {
@@ -117,9 +141,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ email, password, fullName, phone }),
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        return { error: { message: data.error || 'Registration failed.' } };
+      const { data, error: parseError } = await parseApiResponse(res);
+      if (!res.ok || parseError || data?.error) {
+        return { error: { message: data?.error || parseError || 'Registration failed.' } };
       }
 
       if (data.user && data.token) {
@@ -156,9 +180,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify(isEmail ? { email: contact } : { phone: contact }),
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        return { error: { message: data.error || 'Failed to send verification code.' } };
+      const { data, error: parseError } = await parseApiResponse(res);
+      if (!res.ok || parseError || data?.error) {
+        return { error: { message: data?.error || parseError || 'Failed to send verification code.' } };
       }
 
       return {
@@ -182,9 +206,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify(isEmail ? { email: contact } : { phone: contact }),
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        return { error: { message: data.error || 'Failed to resend verification code.' } };
+      const { data, error: parseError } = await parseApiResponse(res);
+      if (!res.ok || parseError || data?.error) {
+        return { error: { message: data?.error || parseError || 'Failed to resend verification code.' } };
       }
 
       return {
@@ -218,9 +242,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        return { error: { message: data.error || 'Invalid verification code.' } };
+      const { data, error: parseError } = await parseApiResponse(res);
+      if (!res.ok || parseError || data?.error) {
+        return { error: { message: data?.error || parseError || 'Invalid verification code.' } };
       }
 
       const appUser: AppUser = {
@@ -251,9 +275,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        return { error: { message: data.error || 'Failed to send password reset email.' } };
+      const { data, error: parseError } = await parseApiResponse(res);
+      if (!res.ok || parseError || data?.error) {
+        return { error: { message: data?.error || parseError || 'Failed to send password reset email.' } };
       }
 
       return { error: null, message: data.message };
@@ -265,9 +289,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const verifyResetToken = async (token: string) => {
     try {
       const res = await fetch(`/api/auth/verify-reset-token?token=${encodeURIComponent(token.trim())}`);
-      const data = await res.json();
-      if (!res.ok || !data.valid) {
-        return { valid: false, error: data.error || 'Password reset link is invalid or has expired.' };
+      const { data, error: parseError } = await parseApiResponse(res);
+      if (!res.ok || parseError || !data?.valid) {
+        return { valid: false, error: data?.error || parseError || 'Password reset link is invalid or has expired.' };
       }
       return { valid: true };
     } catch (err: any) {
@@ -287,9 +311,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ token: token.trim(), newPassword: password }),
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        return { error: { message: data.error || 'Failed to update password.' } };
+      const { data, error: parseError } = await parseApiResponse(res);
+      if (!res.ok || parseError || data?.error) {
+        return { error: { message: data?.error || parseError || 'Failed to update password.' } };
       }
 
       return { error: null, message: data.message };
@@ -310,9 +334,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify(data),
       });
 
-      const resData = await res.json();
-      if (!res.ok || resData.error) {
-        return { error: { message: resData.error || 'Failed to update profile.' } };
+      const { data: resData, error: parseError } = await parseApiResponse(res);
+      if (!res.ok || parseError || resData?.error) {
+        return { error: { message: resData?.error || parseError || 'Failed to update profile.' } };
       }
 
       if (user && resData.user) {
@@ -342,18 +366,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { 'Content-Type': 'application/json' },
       });
 
-      const data = await res.json();
+      const { data } = await parseApiResponse(res);
       const demoUser: AppUser = {
-        id: data.user?.id || 'demo-user-id',
-        email: data.user?.email || 'demo@codelens.ai',
+        id: data?.user?.id || 'demo-user-id',
+        email: data?.user?.email || 'demo@codelens.ai',
         created_at: new Date().toISOString(),
         app_metadata: { provider: 'email' },
-        user_metadata: { full_name: data.user?.fullName || 'Demo Developer' },
+        user_metadata: { full_name: data?.user?.fullName || 'Demo Developer' },
       };
 
       setUser(demoUser);
       localStorage.setItem(USER_KEY, JSON.stringify(demoUser));
-      localStorage.setItem(TOKEN_KEY, data.token || 'token_demo-user-id');
+      localStorage.setItem(TOKEN_KEY, data?.token || 'token_demo-user-id');
 
       return { error: null };
     } catch (err: any) {

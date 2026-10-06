@@ -52,7 +52,7 @@ describe('Real Registration & Login Persistence Suite', () => {
 
   it('supports lookup and login via registered mobile number', () => {
     const testId = `usr_phone_${Date.now()}`;
-    const testPhone = '+919988776655';
+    const testPhone = `+91${Date.now().toString().slice(-10)}`;
     const testPass = 'Password123!';
     const passHash = hashPassword(testPass);
 
