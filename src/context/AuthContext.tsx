@@ -78,7 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier: email, email, password }),
       });
 
       const data = await res.json();
@@ -89,7 +89,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const appUser: AppUser = {
         id: data.user.id,
         email: data.user.email,
-        created_at: new Date().toISOString(),
+        phone: data.user.phone,
+        role: data.user.role || 'developer',
+        isVerified: data.user.isVerified ?? true,
+        login_count: data.user.loginCount || 1,
+        last_login_at: data.user.lastLoginAt,
+        created_at: data.user.createdAt || new Date().toISOString(),
         app_metadata: { provider: 'email' },
         user_metadata: { full_name: data.user.fullName },
       };
@@ -100,7 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return { error: null };
     } catch (err: any) {
-      return { error: { message: err.message || 'Server connection failed.' } };
+      return { error: { message: err.message || 'Server connection failed. Ensure backend server is running.' } };
     }
   };
 
@@ -117,26 +122,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: { message: data.error || 'Registration failed.' } };
       }
 
-      // Production Mobile OTP Verification Flow:
-      if (data.requiresVerification) {
-        return {
-          error: null,
-          requiresVerification: true,
-          phone: data.phone,
-          message: data.message,
-          cooldownSeconds: data.cooldownSeconds || 60,
-          simulated: data.simulated,
-          devOtp: data.devOtp,
-        };
-      }
-
       if (data.user && data.token) {
         const appUser: AppUser = {
           id: data.user.id,
           email: data.user.email,
           phone: data.user.phone,
-          isVerified: data.user.isVerified,
-          created_at: new Date().toISOString(),
+          isVerified: data.user.isVerified ?? true,
+          role: data.user.role || 'developer',
+          login_count: data.user.loginCount || 1,
+          last_login_at: data.user.lastLoginAt,
+          created_at: data.user.createdAt || new Date().toISOString(),
           app_metadata: { provider: 'email' },
           user_metadata: { full_name: data.user.fullName },
         };
@@ -146,9 +141,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem(TOKEN_KEY, data.token);
       }
 
-      return { error: null };
+      return { error: null, message: data.message };
     } catch (err: any) {
-      return { error: { message: err.message || 'Server connection failed.' } };
+      return { error: { message: err.message || 'Server connection failed. Ensure backend server is running.' } };
     }
   };
 

@@ -49,4 +49,27 @@ describe('Real Registration & Login Persistence Suite', () => {
     expect(inList?.email).toBe(testEmail);
     expect(inList?.phone).toBe(testPhone);
   });
+
+  it('supports lookup and login via registered mobile number', () => {
+    const testId = `usr_phone_${Date.now()}`;
+    const testPhone = '+919988776655';
+    const testPass = 'Password123!';
+    const passHash = hashPassword(testPass);
+
+    dbService.createUser({
+      id: testId,
+      email: `phone_${Date.now()}@domain.com`,
+      phone: testPhone,
+      fullName: 'Phone User',
+      passwordHash: passHash,
+      role: 'developer',
+      isVerified: true,
+    });
+
+    const userByPhone = dbService.getUserByPhone(testPhone);
+    expect(userByPhone).toBeDefined();
+    expect(userByPhone?.id).toBe(testId);
+    expect(userByPhone?.passwordHash).toBe(passHash);
+    expect(userByPhone?.fullName).toBe('Phone User');
+  });
 });

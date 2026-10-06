@@ -538,21 +538,37 @@ authRouter.post('/register', async (req: Request, res: Response): Promise<void> 
  * User login: authenticates password, updates login timestamp & count in DB, and logs activity
  */
 authRouter.post('/login', async (req: Request, res: Response): Promise<void> => {
-  const { email, password } = req.body;
+  const { email, identifier, password } = req.body;
+  const loginInput = (identifier || email || '').trim();
 
-  if (!email || !password) {
-    res.status(400).json({ error: 'Email and password are required.' });
+  if (!loginInput || !password) {
+    res.status(400).json({ error: 'Email/Mobile number and password are required.' });
     return;
   }
 
-  const cleanEmail = email.toLowerCase().trim();
   const passHash = hashPassword(password);
 
   try {
-    let user = dbService.getUserByEmail(cleanEmail);
+    let user = null;
+
+    // 1. Try finding by email
+    if (loginInput.includes('@')) {
+      user = dbService.getUserByEmail(loginInput.toLowerCase());
+    }
+
+    // 2. If not found, try finding by phone (normalized or raw)
+    if (!user) {
+      const cleanPhone = normalizePhoneNumber(loginInput);
+      user = dbService.getUserByPhone(cleanPhone) || dbService.getUserByPhone(loginInput);
+    }
+
+    // 3. Fallback: try email match even without @ if stored that way
+    if (!user) {
+      user = dbService.getUserByEmail(loginInput.toLowerCase());
+    }
 
     if (!user) {
-      res.status(401).json({ error: 'No account found with this email. Please register first.' });
+      res.status(401).json({ error: 'No account found with this email or mobile number. Please register first.' });
       return;
     }
 
@@ -581,10 +597,11 @@ authRouter.post('/login', async (req: Request, res: Response): Promise<void> => 
 
     const token = createToken(user.id);
 
-    console.log(`🔑 Developer logged in: [${user.email}] (Total Logins: ${user.loginCount})`);
+    console.log(`🔑 Developer logged in: [${user.email || user.phone}] (Total Logins: ${user.loginCount})`);
 
     res.status(200).json({
       success: true,
+      message: 'Logged in successfully!',
       user: {
         id: user.id,
         email: user.email || '',
